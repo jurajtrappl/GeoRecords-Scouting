@@ -7,7 +7,7 @@ A Tampermonkey/Greasemonkey userscript that auto-submits your finished GeoGuessr
 1. Install [Tampermonkey](https://www.tampermonkey.net/) (Chrome/Edge/Firefox) or [Greasemonkey](https://addons.mozilla.org/firefox/addon/greasemonkey/) (Firefox)
 2. Click the button below — Tampermonkey will show an install prompt:
 
-[![Install GeoRecords Scout](https://img.shields.io/badge/Install-GeoRecords_Scout-green?style=for-the-badge&logo=tampermonkey)](https://raw.githubusercontent.com/YOURUSERNAME/georecords-scout/main/georecords-scout.user.js)
+[![Install GeoRecords Scout](https://img.shields.io/badge/Install-GeoRecords_Scout-green?style=for-the-badge&logo=tampermonkey)](https://raw.githubusercontent.com/jurajtrappl/GeoRecords-Scouting/main/georecords-scout.user.js)
 
 3. Log in to [GeoRecords](https://georecords-slim.onrender.com) in the same browser
 4. Play GeoGuessr — finished games are submitted automatically
