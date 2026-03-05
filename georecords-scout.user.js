@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GeoRecords Scout
 // @namespace    https://georecords-slim.onrender.com
-// @version      1.1.0
+// @version      1.2.0
 // @description  Auto-submit finished GeoGuessr games to GeoRecords scouting
 // @author       GeoRecords
 // @match        https://www.geoguessr.com/*
@@ -25,7 +25,8 @@
 
     // ==================== STATE ====================
 
-    const submittedUrls = new Set();
+    const submittedGameIds = new Set();   // Track by game ID, not full URL
+    let currentGameId = null;             // Currently active game ID
     let csrfToken = null;
     let loggedInUser = null;
     let autoSubmit = true;
@@ -138,13 +139,20 @@
 
     // ==================== GAME DETECTION ====================
 
+    /**
+     * Extract the game ID from the current URL.
+     * Works for both /game/XXXXX and /results/XXXXX paths.
+     */
+    function getGameId() {
+        const m = window.location.href.match(/geoguessr\.com\/(?:game|results)\/([a-zA-Z0-9]+)/);
+        return m ? m[1] : null;
+    }
+
     function getGameUrl() {
-        const url = window.location.href;
-        const gameMatch = url.match(/geoguessr\.com\/game\/([a-zA-Z0-9]+)/);
-        if (gameMatch) return `https://www.geoguessr.com/game/${gameMatch[1]}`;
-        const resultsMatch = url.match(/geoguessr\.com\/results\/([a-zA-Z0-9]+)/);
-        if (resultsMatch) return `https://www.geoguessr.com/results/${resultsMatch[1]}`;
-        return null;
+        const gameId = getGameId();
+        if (!gameId) return null;
+        // Always normalize to /game/ URL for consistent submission
+        return `https://www.geoguessr.com/game/${gameId}`;
     }
 
     function isGameFinished() {
@@ -153,7 +161,6 @@
 
         // /game/ page — look for end-of-game UI elements
         if (window.location.href.includes('/game/')) {
-            // GeoGuessr result summary selectors (they change occasionally, so cast a wide net)
             const selectors = [
                 '[data-qa="result-view-top"]',
                 '[data-qa="play-again-button"]',
@@ -168,8 +175,6 @@
                 if (document.querySelector(sel)) return true;
             }
 
-            // Check for the final score summary with all 5 rounds visible
-            // GeoGuessr shows a progress bar with round indicators
             const roundNodes = document.querySelectorAll(
                 '[class*="progress-circle"][class*="completed"], ' +
                 '[class*="round-indicator"][class*="finished"], ' +
@@ -183,9 +188,10 @@
 
     // ==================== AUTO-SUBMIT ====================
 
-    async function trySubmit(gameUrl) {
-        if (!gameUrl || submittedUrls.has(gameUrl)) return;
-        submittedUrls.add(gameUrl);
+    async function trySubmit(gameId, gameUrl) {
+        if (!gameId || !gameUrl) return;
+        if (submittedGameIds.has(gameId)) return;
+        submittedGameIds.add(gameId);
 
         if (!autoSubmit) return;
 
@@ -199,7 +205,7 @@
             showToast(`Scouted! ${d.correct_count}/${d.total_rounds} correct (${pct}%) · ${(d.total_score || 0).toLocaleString()} pts`);
         } else {
             // Silently ignore duplicates
-            if (result.error && (result.error.includes('already submitted') || result.error.includes('already'))) {
+            if (result.error && result.error.toLowerCase().includes('already')) {
                 return;
             }
             showToast(result.error || 'Failed to submit', true);
@@ -208,8 +214,9 @@
 
     function checkForFinishedGame() {
         if (isGameFinished()) {
+            const gameId = getGameId();
             const gameUrl = getGameUrl();
-            if (gameUrl) trySubmit(gameUrl);
+            if (gameId) trySubmit(gameId, gameUrl);
         }
     }
 
@@ -226,13 +233,14 @@
     }
 
     async function manualSubmit() {
+        const gameId = getGameId();
         const gameUrl = getGameUrl();
-        if (!gameUrl) {
+        if (!gameId || !gameUrl) {
             showToast('No game URL found on this page', true);
             return;
         }
         // Force submit even if already submitted
-        submittedUrls.delete(gameUrl);
+        submittedGameIds.delete(gameId);
         showToast('Submitting...', false, true);
         const result = await submitToScouting(gameUrl, defaultMapType);
         if (result.ok) {
@@ -268,13 +276,11 @@
         toast.innerHTML = `<span style="margin-right:6px;">${icon}</span>${escapeHtml(message)}`;
         document.body.appendChild(toast);
 
-        // Animate in
         requestAnimationFrame(() => {
             toast.style.transform = 'translateY(0)';
             toast.style.opacity = '1';
         });
 
-        // Auto-dismiss
         const duration = isTransient ? 2000 : 5000;
         setTimeout(() => {
             toast.style.opacity = '0';
@@ -299,10 +305,28 @@
     });
 
     // URL change watcher (GeoGuessr is a SPA)
+    // This is the key fix: detect new game IDs and reset tracking properly
     let lastUrl = window.location.href;
     setInterval(() => {
         if (window.location.href !== lastUrl) {
+            const oldUrl = lastUrl;
             lastUrl = window.location.href;
+
+            const newGameId = getGameId();
+
+            // If we've navigated to a different game, update tracking
+            if (newGameId && newGameId !== currentGameId) {
+                console.log(`[GeoRecords Scout] New game detected: ${newGameId} (was: ${currentGameId})`);
+                currentGameId = newGameId;
+            }
+
+            // If we navigated away from a game page entirely (e.g. back to lobby),
+            // clear the current game so the next one is detected fresh
+            if (!newGameId) {
+                currentGameId = null;
+            }
+
+            // Check after a delay to let the SPA render
             setTimeout(checkForFinishedGame, 1500);
         }
     }, 500);
@@ -320,6 +344,9 @@
         } else {
             console.log('[GeoRecords Scout] Not logged in to GeoRecords');
         }
+
+        // Set initial game ID if we're already on a game page
+        currentGameId = getGameId();
 
         // Start watching
         observer.observe(document.body, { childList: true, subtree: true });
